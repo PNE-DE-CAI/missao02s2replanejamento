@@ -244,6 +244,14 @@
     background: #d32f2f;
     border-color: #d32f2f;
   }
+  .btn-danger {
+    background: #fee2e2;
+    color: #b91c1c;
+    border-color: #fecaca;
+  }
+  .btn-danger:hover {
+    background: #fecaca;
+  }
   .btn-group {
     display: flex;
     gap: 12px;
@@ -581,7 +589,12 @@
   </div>
 </div>
 
-<!-- Botão fixo também imprime apenas o relatório -->
+<!-- Botões CRUD (inferior esquerdo) -->
+<div style="position: fixed; bottom: 24px; left: 24px; z-index: 10; display: flex; gap: 12px;">
+  <button class="btn btn-danger" onclick="limparDados()" style="background: #fee2e2; color: #b91c1c;"><i class="fas fa-trash-alt"></i> Limpar todos os dados</button>
+  <button class="btn btn-primary" onclick="salvarProgressoManual()" style="background: #0a2f6c;"><i class="fas fa-save"></i> Salvar progresso agora</button>
+</div>
+<!-- Botão fixo para imprimir relatório -->
 <button class="print-btn" onclick="imprimirSomenteRelatorio()"><i class="fas fa-print"></i> Imprimir / Salvar PDF</button>
 
 <script>
@@ -589,7 +602,182 @@
   const TOTAL = 5;
   const ETAPAS = ['Ponto de partida','Sequências','Retomadas','Adaptações','Visão geral'];
   let seqCount = 0;
+  const STORAGE_KEY = 'missao2_jornada';
 
+  // ========== CRUD LOCALSTORAGE ==========
+  function salvarParaLocalStorage() {
+    // Coleta todas as sequências atuais
+    let seqs = [];
+    document.querySelectorAll('.seq-card').forEach(card => {
+      let id = card.id.replace('seq-', '');
+      let tema = document.getElementById('seq-tema-' + id);
+      let aulas = document.getElementById('seq-aulas-' + id);
+      let ret = document.getElementById('seq-retomada-' + id);
+      let prereq = document.getElementById('seq-prereq-' + id);
+      let material = document.getElementById('seq-material-' + id);
+      let adapt = document.getElementById('seq-adaptacao-' + id);
+      if (tema) {
+        seqs.push({
+          id: id,
+          tema: tema.value,
+          aulas: aulas ? aulas.value : '1',
+          retomada: ret ? ret.value : 'Sim',
+          prereq: prereq ? prereq.value : '',
+          material: material ? material.value : '',
+          adaptacao: adapt ? adapt.value : ''
+        });
+      }
+    });
+
+    const dados = {
+      identificacao: {
+        nome: document.getElementById('inp-nome').value,
+        escola: document.getElementById('inp-escola').value,
+        turma: document.getElementById('inp-turma').value,
+        componente: document.getElementById('inp-componente').value,
+        ciclo: document.getElementById('inp-ciclo').value
+      },
+      passos: estado.passos,
+      seqCount: seqCount,
+      sequencias: seqs,
+      // campos texto e checkboxes
+      s1q1: document.getElementById('s1q1').value,
+      s1q2: Array.from(document.querySelectorAll('input[name="s1q2"]:checked')).map(cb => cb.value),
+      s3q1: document.querySelector('input[name="s3q1"]:checked') ? document.querySelector('input[name="s3q1"]:checked').value : '',
+      s3q2: document.getElementById('s3q2').value,
+      s3q3: Array.from(document.querySelectorAll('input[name="s3q3"]:checked')).map(cb => cb.value),
+      s4q1: document.querySelector('input[name="s4q1"]:checked') ? document.querySelector('input[name="s4q1"]:checked').value : '',
+      s4q2: Array.from(document.querySelectorAll('input[name="s4q2"]:checked')).map(cb => cb.value),
+      s4q3: document.getElementById('s4q3').value,
+      s5q1: document.querySelector('input[name="s5q1"]:checked') ? document.querySelector('input[name="s5q1"]:checked').value : '',
+      s5q2: document.getElementById('s5q2').value,
+      s5q3: document.getElementById('s5q3').value
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(dados));
+    console.log('✅ Dados salvos no localStorage');
+  }
+
+  function carregarDoLocalStorage() {
+    const dadosRaw = localStorage.getItem(STORAGE_KEY);
+    if (!dadosRaw) return false;
+    try {
+      const dados = JSON.parse(dadosRaw);
+      // Identificação
+      if (dados.identificacao) {
+        document.getElementById('inp-nome').value = dados.identificacao.nome || '';
+        document.getElementById('inp-escola').value = dados.identificacao.escola || '';
+        document.getElementById('inp-turma').value = dados.identificacao.turma || '';
+        document.getElementById('inp-componente').value = dados.identificacao.componente || '';
+        document.getElementById('inp-ciclo').value = dados.identificacao.ciclo || '';
+        estado.nome = dados.identificacao.nome || '';
+        estado.escola = dados.identificacao.escola || '';
+        estado.turma = dados.identificacao.turma || '';
+        estado.componente = dados.identificacao.componente || '';
+        estado.ciclo = dados.identificacao.ciclo || '';
+      }
+      estado.passos = dados.passos || 0;
+
+      // Restaurar sequências
+      if (dados.sequencias && dados.sequencias.length > 0) {
+        seqCount = dados.seqCount || dados.sequencias.length;
+        // Limpar container atual
+        const container = document.getElementById('sequencias-container');
+        container.innerHTML = '';
+        // Recriar cada sequência
+        dados.sequencias.forEach(seq => {
+          const n = seq.id;
+          const div = document.createElement('div');
+          div.className = 'seq-card';
+          div.id = 'seq-' + n;
+          div.innerHTML = `
+            <div class="seq-card-header">
+              <div class="seq-num">${n}</div>
+              <input type="text" class="seq-title-input" id="seq-tema-${n}" placeholder="Tema / conteúdo da sequência..." value="${escapeHtml(seq.tema || '')}">
+              <button class="remove-btn" onclick="removerSeq(${n})"><i class="fas fa-trash-alt"></i></button>
+            </div>
+            <div class="seq-mini-grid">
+              <div><label>Número de aulas previsto</label><input type="number" id="seq-aulas-${n}" min="1" max="40" value="${seq.aulas || '1'}" style="width:80px"></div>
+              <div><label>Retomada necessária?</label><select id="seq-retomada-${n}"><option value="Sim" ${seq.retomada === 'Sim' ? 'selected' : ''}>Sim</option><option value="Não" ${seq.retomada === 'Não' ? 'selected' : ''}>Não</option><option value="Talvez" ${seq.retomada === 'Talvez' ? 'selected' : ''}>Talvez</option></select></div>
+            </div>
+            <div style="margin-bottom:8px"><label>Conhecimentos prévios exigidos / pré-requisitos</label><input type="text" id="seq-prereq-${n}" placeholder="Ex.: domínio de frações, leitura inferencial..." value="${escapeHtml(seq.prereq || '')}"></div>
+            <div style="margin-bottom:8px"><label>Material que será utilizado para retomada</label><input type="text" id="seq-material-${n}" placeholder="Ex.: Aula 2 do 2º bimestre, Khan Academy..." value="${escapeHtml(seq.material || '')}"></div>
+            <div><label>Atividades que serão adaptadas</label><input type="text" id="seq-adaptacao-${n}" placeholder="Ex.: Atividades 2 e 3 da Aula 4, simplificação..." value="${escapeHtml(seq.adaptacao || '')}"></div>
+          `;
+          container.appendChild(div);
+        });
+      } else {
+        // se não há sequências salvas, garantir pelo menos uma vazia
+        if (document.querySelectorAll('.seq-card').length === 0) adicionarSequencia();
+      }
+
+      // campos texto
+      if (dados.s1q1) document.getElementById('s1q1').value = dados.s1q1;
+      if (dados.s3q2) document.getElementById('s3q2').value = dados.s3q2;
+      if (dados.s4q3) document.getElementById('s4q3').value = dados.s4q3;
+      if (dados.s5q2) document.getElementById('s5q2').value = dados.s5q2;
+      if (dados.s5q3) document.getElementById('s5q3').value = dados.s5q3;
+
+      // checkboxes s1q2
+      if (dados.s1q2 && Array.isArray(dados.s1q2)) {
+        document.querySelectorAll('input[name="s1q2"]').forEach(cb => {
+          cb.checked = dados.s1q2.includes(cb.value);
+        });
+      }
+      // checkboxes s3q3
+      if (dados.s3q3 && Array.isArray(dados.s3q3)) {
+        document.querySelectorAll('input[name="s3q3"]').forEach(cb => {
+          cb.checked = dados.s3q3.includes(cb.value);
+        });
+      }
+      // checkboxes s4q2
+      if (dados.s4q2 && Array.isArray(dados.s4q2)) {
+        document.querySelectorAll('input[name="s4q2"]').forEach(cb => {
+          cb.checked = dados.s4q2.includes(cb.value);
+        });
+      }
+
+      // radios
+      if (dados.s3q1) {
+        let r = document.querySelector(`input[name="s3q1"][value="${escapeHtml(dados.s3q1)}"]`);
+        if (r) r.checked = true;
+      }
+      if (dados.s4q1) {
+        let r = document.querySelector(`input[name="s4q1"][value="${escapeHtml(dados.s4q1)}"]`);
+        if (r) r.checked = true;
+      }
+      if (dados.s5q1) {
+        let r = document.querySelector(`input[name="s5q1"][value="${escapeHtml(dados.s5q1)}"]`);
+        if (r) r.checked = true;
+      }
+
+      atualizarDots();
+      return true;
+    } catch(e) { console.error('Erro ao carregar dados', e); return false; }
+  }
+
+  function limparDados() {
+    if (confirm('⚠️ Tem certeza que deseja apagar TODOS os dados salvos? Essa ação não pode ser desfeita.')) {
+      localStorage.removeItem(STORAGE_KEY);
+      location.reload();
+    }
+  }
+
+  function salvarProgressoManual() {
+    salvarParaLocalStorage();
+    alert('✅ Progresso salvo com sucesso!');
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>]/g, function(m) {
+      if (m === '&') return '&amp;';
+      if (m === '<') return '&lt;';
+      if (m === '>') return '&gt;';
+      return m;
+    });
+  }
+
+  // ========== FUNÇÕES EXISTENTES (adaptadas) ==========
   function iniciarMissao() {
     let n = document.getElementById('inp-nome').value.trim();
     let e = document.getElementById('inp-escola').value.trim();
@@ -598,7 +786,9 @@
     let ci = document.getElementById('inp-ciclo').value;
     if (!n || !e || !t || !c || !ci) { alert('Preencha todos os campos para iniciar a missão!'); return; }
     estado.nome = n; estado.escola = e; estado.turma = t; estado.componente = c; estado.ciclo = ci;
-    adicionarSequencia();
+    // garantir pelo menos uma sequência
+    if (document.querySelectorAll('.seq-card').length === 0) adicionarSequencia();
+    salvarParaLocalStorage();
     mostrarScreen('s1');
     atualizarDots();
     renderNav('s1', 0);
@@ -637,6 +827,7 @@
 
   function avancar(de, para, passoAtual) {
     if (passoAtual >= estado.passos) estado.passos = passoAtual + 1;
+    salvarParaLocalStorage();
     atualizarDots();
     mostrarScreen(para);
     let idx = passoAtual + 1;
@@ -665,9 +856,14 @@
       <div><label>Atividades que serão adaptadas</label><input type="text" id="seq-adaptacao-${n}" placeholder="Ex.: Atividades 2 e 3 da Aula 4, simplificação..."></div>
     `;
     container.appendChild(div);
+    salvarParaLocalStorage(); // salva após adicionar
   }
 
-  function removerSeq(id) { let el = document.getElementById('seq-' + id); if (el) el.remove(); }
+  function removerSeq(id) {
+    let el = document.getElementById('seq-' + id);
+    if (el) el.remove();
+    salvarParaLocalStorage();
+  }
 
   function getChecked(name) {
     let vals = [];
@@ -718,14 +914,12 @@
     mostrarScreen('relatorio');
   }
 
-  // Função que imprime APENAS o relatório gerado (sem o restante da interface)
   function imprimirSomenteRelatorio() {
     const conteudo = document.getElementById('relatorio-conteudo');
     if (!conteudo || !conteudo.innerHTML.trim() || conteudo.innerHTML === '') {
       alert('Nenhum relatório foi gerado ainda. Complete a missão e gere o relatório primeiro.');
       return;
     }
-    // Cria um iframe invisível para impressão
     const iframe = document.createElement('iframe');
     iframe.style.position = 'absolute';
     iframe.style.width = '0';
@@ -733,7 +927,6 @@
     iframe.style.border = 'none';
     document.body.appendChild(iframe);
     const doc = iframe.contentWindow.document;
-    // Monta o HTML do relatório com estilo próprio
     doc.open();
     doc.write(`
       <!DOCTYPE html>
@@ -784,14 +977,6 @@
             text-transform: uppercase;
             color: #d32f2f;
           }
-          .seq-block {
-            background: #f8fafc;
-            border-radius: 12px;
-            padding: 0.75rem;
-            margin-bottom: 0.75rem;
-            border: 1px solid #e2e8f0;
-          }
-          .seq-block h4 { font-weight: 700; margin-bottom: 0.25rem; }
           hr { margin: 1rem 0; }
         </style>
       </head>
@@ -812,7 +997,42 @@
     setTimeout(() => { document.body.removeChild(iframe); }, 1000);
   }
 
-  atualizarDots();
+  // Carregar dados salvos ao iniciar
+  const dadosCarregados = carregarDoLocalStorage();
+  if (dadosCarregados && (estado.nome || estado.passos > 0)) {
+    let telaAtual = '';
+    if (estado.passos === 1) telaAtual = 's1';
+    else if (estado.passos === 2) telaAtual = 's2';
+    else if (estado.passos === 3) telaAtual = 's3';
+    else if (estado.passos === 4) telaAtual = 's4';
+    else if (estado.passos === 5) telaAtual = 's5';
+    else if (estado.passos >= 6) telaAtual = 'fim';
+    if (telaAtual) {
+      mostrarScreen(telaAtual);
+      atualizarDots();
+      let stepIdx = estado.passos === 1 ? 0 : estado.passos === 2 ? 1 : estado.passos === 3 ? 2 : estado.passos === 4 ? 3 : estado.passos === 5 ? 4 : 5;
+      renderNav(telaAtual, stepIdx);
+    } else {
+      mostrarScreen('cadastro');
+    }
+  } else {
+    // se não há dados, fica na tela de cadastro e garante uma sequência vazia
+    if (document.querySelectorAll('.seq-card').length === 0) adicionarSequencia();
+    mostrarScreen('cadastro');
+  }
+
+  // Auto-save em todas as mudanças de inputs
+  function addAutoSaveEvents() {
+    const allInputs = document.querySelectorAll('input, select, textarea');
+    allInputs.forEach(el => {
+      el.addEventListener('change', () => salvarParaLocalStorage());
+      el.addEventListener('blur', () => salvarParaLocalStorage());
+    });
+    document.querySelectorAll('.checkbox-item input, .radio-item input').forEach(cb => {
+      cb.addEventListener('change', () => salvarParaLocalStorage());
+    });
+  }
+  addAutoSaveEvents();
 </script>
 </body>
 </html>
